@@ -42,6 +42,56 @@ def calculate_hourly_weekday_avg(df):
     
     return hourly_weekday_avg
 
+def create_combined_rfm_df(day_data, hour_data):
+    # Menghitung RFM untuk day_data
+    rfm_day = day_data.groupby(by="user_category", as_index=False).agg({
+        "dteday": "max", 
+        "total_users": "sum", 
+    })
+    rfm_day.columns = ["user_category", "last_usage_date_day", "monetary_day"]
+    
+    # Menghitung recency (jumlah hari sejak penggunaan terakhir) untuk day_data
+    rfm_day["last_usage_date_day"] = pd.to_datetime(rfm_day["last_usage_date_day"])
+    recent_date_day = day_data["dteday"].max()
+    rfm_day["recency_day"] = rfm_day["last_usage_date_day"].apply(lambda x: (recent_date_day - x).days)
+    
+    # Menghitung frequency berdasarkan kategori pengguna untuk day_data
+    rfm_day["frequency_day"] = day_data.groupby("user_category")["total_users"].count().reset_index(drop=True)
+    
+    # Menghapus kolom last_usage_date_day karena sudah tidak diperlukan lagi
+    rfm_day.drop("last_usage_date_day", axis=1, inplace=True)
+
+    # Menghitung RFM untuk hour_data
+    rfm_hour = hour_data.groupby(by="user_category_hour", as_index=False).agg({
+        "dteday": "max",  # Mengambil tanggal penggunaan terakhir
+        "total_users": "sum",  # Total penggunaan sepeda
+    })
+    rfm_hour.columns = ["user_category_hour", "last_usage_date_hour", "monetary_hour"]
+    
+    # Menghitung recency (jumlah jam sejak penggunaan terakhir) untuk hour_data
+    rfm_hour["last_usage_date_hour"] = pd.to_datetime(rfm_hour["last_usage_date_hour"])
+    recent_date_hour = hour_data["dteday"].max()
+    rfm_hour["recency_hour"] = rfm_hour["last_usage_date_hour"].apply(lambda x: (recent_date_hour - x).days)
+    
+    # Menghitung frequency berdasarkan kategori pengguna untuk hour_data
+    rfm_hour["frequency_hour"] = hour_data.groupby("user_category_hour")["total_users"].count().reset_index(drop=True)
+    
+    # Menghapus kolom last_usage_date_hour karena sudah tidak diperlukan lagi
+    rfm_hour.drop("last_usage_date_hour", axis=1, inplace=True)
+    
+    # Gabungkan kedua dataframe berdasarkan kategori pengguna
+    combined_rfm_df = pd.merge(rfm_day, rfm_hour, left_on="user_category", right_on="user_category_hour", how="outer")
+    
+    # Menghitung Recency dan Frequency gabungan
+    combined_rfm_df["recency"] = combined_rfm_df[["recency_day", "recency_hour"]].min(axis=1)
+    combined_rfm_df["frequency"] = combined_rfm_df[["frequency_day", "frequency_hour"]].sum(axis=1)
+    combined_rfm_df["monetary"] = combined_rfm_df[["monetary_day", "monetary_hour"]].sum(axis=1)
+    
+    # Menghapus kolom yang tidak perlu
+    combined_rfm_df.drop(["recency_day", "recency_hour", "frequency_day", "frequency_hour", "monetary_day", "monetary_hour"], axis=1, inplace=True)
+    
+    return combined_rfm_df
+
 # Load data
 day_data = pd.read_csv("day_data.csv")
 hour_data = pd.read_csv("hour_data.csv")
@@ -204,9 +254,54 @@ st.write("""
 
 st.markdown("-------------------------------------------------------------------------")
 
+rfm_df_combined = create_combined_rfm_df(day_data, hour_data)
+
 # Visualisasi RFM yang digabungkan
 st.markdown("### Analisis RFM (Recency, Frequency, Monetary) Berdasarkan Hari dan Jam")
 
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    avg_recency = round(rfm_df_combined.recency.mean(), 1)
+    st.metric("Average Recency (days)", value=avg_recency)
+
+with col2:
+    avg_frequency = round(rfm_df_combined.frequency.mean(), 2)
+    st.metric("Average Frequency", value=avg_frequency)
+
+with col3:
+    avg_monetary = rfm_df_combined.monetary.sum()
+    st.metric("Total Users (Monetary)", value=f"{avg_monetary:,}")
+
+# Visualizations for combined RFM
+fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(35, 15))
+colors = ["#90CAF9", "#90CAF9", "#90CAF9"]
+
+# Plotting Recency
+sns.barplot(y="recency", x="user_category", data=rfm_df_combined.sort_values(by="recency", ascending=True).head(5), palette=colors, ax=ax[0])
+ax[0].set_ylabel(None)
+ax[0].set_xlabel("User Category", fontsize=30)
+ax[0].set_title("By Recency (days)", loc="center", fontsize=50)
+ax[0].tick_params(axis='y', labelsize=30)
+ax[0].tick_params(axis='x', labelsize=35)
+
+# Plotting Frequency
+sns.barplot(y="frequency", x="user_category", data=rfm_df_combined.sort_values(by="frequency", ascending=False).head(5), palette=colors, ax=ax[1])
+ax[1].set_ylabel(None)
+ax[1].set_xlabel("User Category", fontsize=30)
+ax[1].set_title("By Frequency", loc="center", fontsize=50)
+ax[1].tick_params(axis='y', labelsize=30)
+ax[1].tick_params(axis='x', labelsize=35)
+
+# Plotting Monetary (total usage)
+sns.barplot(y="monetary", x="user_category", data=rfm_df_combined.sort_values(by="monetary", ascending=False).head(5), palette=colors, ax=ax[2])
+ax[2].set_ylabel(None)
+ax[2].set_xlabel("User Category", fontsize=30)
+ax[2].set_title("By Monetary", loc="center", fontsize=50)
+ax[2].tick_params(axis='y', labelsize=30)
+ax[2].tick_params(axis='x', labelsize=35)
+
+st.pyplot(fig)
 
 # Menambahkan footer
 st.write("""
