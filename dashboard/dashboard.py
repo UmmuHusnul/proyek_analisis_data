@@ -1,15 +1,81 @@
-import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import streamlit as st
 
-# Membaca data yang sudah diolah
-# Pastikan Anda sudah mengganti path dataset sesuai dengan file yang Anda miliki
+sns.set(style='darkgrid')
+
+# Helper functions untuk analisis dataset
+def daily_user_stats(df):
+    """Statistik pengguna harian berdasarkan kategori."""
+    daily_stats = df.groupby(['dteday', 'user_category']).total_users.sum().reset_index()
+    return daily_stats
+
+def hourly_user_distribution(df):
+    """Distribusi pengguna per jam berdasarkan kategori."""
+    hourly_distribution = df.groupby(['hr', 'user_category_hour']).total_users.sum().reset_index()
+    return hourly_distribution
+
+# Menghitung rata-rata jumlah pengguna berdasarkan musim
+def calculate_season_avg_users(df):
+    season_avg_users = df.groupby('season')['total_users'].mean().reset_index()
+    season_avg_users.rename(columns={'total_users': 'avg_users'}, inplace=True)
+    season_avg_users['season'] = season_avg_users['season'].map({0: 'Spring', 1: 'Summer', 2: 'Fall', 3: 'Winter'})
+    return season_avg_users
+
+# Menghitung rata-rata jumlah pengguna berdasarkan kondisi cuaca
+def calculate_weather_avg_users(df):
+    weather_avg_users = df.groupby('weather_condition')['total_users'].mean().reset_index()
+    weather_avg_users.rename(columns={'total_users': 'avg_users'}, inplace=True)
+    weather_avg_users['weather_condition'] = weather_avg_users['weather_condition'].map(
+        {0: 'Clear', 1: 'Cloudy', 2: 'Rainy', 3: 'Stormy'})
+    return weather_avg_users
+
+# Menghitung rata-rata jumlah pengguna berdasarkan jam dan hari dalam seminggu
+def calculate_hourly_weekday_avg(df):
+    hourly_weekday_avg = df.groupby(['weekday', 'hr'])['total_users'].mean().reset_index()
+    hourly_weekday_avg.rename(columns={'total_users': 'avg_users'}, inplace=True)
+    
+    # Mapping nama hari ke string
+    weekday_map = {0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday'}
+    hourly_weekday_avg['weekday'] = hourly_weekday_avg['weekday'].map(weekday_map)
+    
+    return hourly_weekday_avg
+
+# Load data
 day_data = pd.read_csv("day_data.csv")
 hour_data = pd.read_csv("hour_data.csv")
 
+# Konversi kolom waktu
+day_data['dteday'] = pd.to_datetime(day_data['dteday'])
+hour_data['dteday'] = pd.to_datetime(hour_data['dteday'])
+
+# Sidebar untuk rentang waktu
+min_date = day_data['dteday'].min()
+max_date = day_data['dteday'].max()
+
+with st.sidebar:
+    # Menambahkan logo perusahaan
+    st.image("https://github.com/dicodingacademy/assets/raw/main/logo.png")
+    
+    # Mengambil start_date & end_date dari date_input
+    start_date, end_date = st.date_input(
+        label='Rentang Waktu',
+        min_value=min_date,
+        max_value=max_date,
+        value=[min_date, max_date]
+    )
+
+# Konversi start_date dan end_date menjadi datetime64
+start_date = pd.to_datetime(start_date)
+end_date = pd.to_datetime(end_date)
+
+# Filter dataset berdasarkan rentang waktu
+filtered_day_data = day_data[(day_data['dteday'] >= start_date) & (day_data['dteday'] <= end_date)]
+filtered_hour_data = hour_data[(hour_data['dteday'] >= start_date) & (hour_data['dteday'] <= end_date)]
+
 # Judul dashboard
-st.header('Dicoding Collection: Proyek Analisis Data  :sparkles:')
+st.header('Dicoding: Proyek Analisis Data  :sparkles:')
 
 # Menampilkan deskripsi analisis
 st.write("""
@@ -18,46 +84,129 @@ st.write("""
     dan informasi yang telah dianalisis.
 """)
 
-# Pilih jenis analisis yang ingin ditampilkan
-option = st.selectbox(
-    "Pilih Jenis Analisis",
-    ["Pengaruh Cuaca dan Musim", "Pola Aktivitas Pengguna Sepeda", "Visualisasi Data"]
+# Statistik Harian
+st.markdown("### Statistik Harian")
+daily_stats = daily_user_stats(filtered_day_data)
+
+col1, col2 = st.columns(2)
+with col1:
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.lineplot(data=daily_stats, x="dteday", y="total_users", hue="user_category", marker="o", ax=ax)
+    ax.set_title("Total Pengguna Harian per Kategori")
+    st.pyplot(fig)
+
+with col2:
+    total_users = filtered_day_data['total_users'].sum()
+    avg_temp = filtered_day_data['temp'].mean()
+    st.metric("Total Pengguna", f"{total_users:,}")
+    st.metric("Suhu Rata-rata", f"{avg_temp:.2f}°C")
+
+# Distribusi Per Jam
+st.markdown("### Distribusi Pengguna Per Jam")
+hourly_stats = hourly_user_distribution(filtered_hour_data)
+
+fig, ax = plt.subplots(figsize=(16, 8))
+sns.barplot(data=hourly_stats, x="hr", y="total_users", hue="user_category_hour", ax=ax)
+ax.set_title("Distribusi Pengguna Per Jam")
+st.pyplot(fig)
+
+# Analisis Pengguna Jam Terakhir
+st.markdown("### Analisis Pengguna Jam Terakhir")
+fig, ax = plt.subplots(figsize=(16, 8))
+sns.histplot(filtered_hour_data['hours_since_last_use'], kde=True, color="blue", ax=ax)
+ax.set_title("Distribusi Jam Sejak Penggunaan Terakhir")
+st.pyplot(fig)
+
+st.markdown("-------------------------------------------------------------------------")
+
+# Pertanyaan 1
+st.markdown("### Pengaruh faktor cuaca, musim, dan waktu terhadap jumlah pengguna sepeda")
+
+# Kalkulasi rata-rata pengguna berdasarkan musim
+season_avg_df = calculate_season_avg_users(filtered_day_data)
+
+# Kalkulasi rata-rata pengguna berdasarkan kondisi cuaca
+weather_avg_df = calculate_weather_avg_users(filtered_day_data)
+
+# Visualisasi rata-rata pengguna berdasarkan musim
+st.markdown("##### Rata-rata Pengguna Berdasarkan Musim")
+fig_season, ax_season = plt.subplots(figsize=(8, 6))
+sns.barplot(
+    data=season_avg_df,
+    x="season",
+    y="avg_users",
+    palette="Blues",
+    ax=ax_season
 )
+ax_season.set_title("Rata-rata Jumlah Pengguna Berdasarkan Musim", fontsize=14)
+ax_season.set_xlabel("Musim", fontsize=12)
+ax_season.set_ylabel("Rata-rata Pengguna Sepeda", fontsize=12)
+st.pyplot(fig_season)
 
-# Pengaruh Cuaca dan Musim
-if option == "Pengaruh Cuaca dan Musim":
-    st.subheader("Pengaruh Cuaca dan Musim terhadap Jumlah Pengguna Sepeda")
+# Visualisasi rata-rata pengguna berdasarkan kondisi cuaca
+st.markdown("##### Rata-rata Pengguna Berdasarkan Kondisi Cuaca")
+fig_weather, ax_weather = plt.subplots(figsize=(8, 6))
+sns.barplot(
+    data=weather_avg_df,
+    x="weather_condition",
+    y="avg_users",
+    palette="Oranges",
+    ax=ax_weather
+)
+ax_weather.set_title("Rata-rata Jumlah Pengguna Berdasarkan Kondisi Cuaca", fontsize=14)
+ax_weather.set_xlabel("Kondisi Cuaca", fontsize=12)
+ax_weather.set_ylabel("Rata-rata Pengguna Sepeda", fontsize=12)
+st.pyplot(fig_weather)
 
-    # Buat visualisasi menggunakan seaborn atau matplotlib
-    fig, ax = plt.subplots()
-    sns.boxplot(x='season', y='total_users', data=day_data, ax=ax)
-    ax.set_title('Pengaruh Musim terhadap Jumlah Pengguna Sepeda')
-    st.pyplot(fig)
+st.markdown("-------------------------------------------------------------------------")
 
-# Pola Aktivitas Pengguna Sepeda
-elif option == "Pola Aktivitas Pengguna Sepeda":
-    st.subheader("Pola Aktivitas Pengguna Sepeda Berdasarkan Waktu dan Hari")
+# Pertanyaan 2
+st.markdown("### Pola aktivitas pengguna sepeda berdasarkan waktu (jam) dan hari")
 
-    # Buat heatmap untuk aktivitas berdasarkan jam
-    activity_hour = day_data.groupby('hour')['total_users_hour'].sum()
-    fig, ax = plt.subplots()
-    sns.heatmap(activity_hour.values.reshape(-1, 1), annot=True, cmap='coolwarm', ax=ax)
-    ax.set_title('Aktivitas Pengguna Sepeda per Jam')
-    st.pyplot(fig)
+# DataFrame rata-rata pengguna per jam dan hari
+hourly_weekday_avg = calculate_hourly_weekday_avg(filtered_hour_data)
 
-# Visualisasi Data
-elif option == "Visualisasi Data":
-    st.subheader("Distribusi Pengguna Sepeda per Kategori")
+# Visualisasi rata-rata pengguna berdasarkan jam
+st.markdown("##### Rata-rata Pengguna Berdasarkan Jam")
 
-    # Kategori pengguna berdasarkan jumlah pengguna sepeda
-    bins = [0, 500, 1000, 2000, day_data['total_users_hour'].max()]
-    labels = ['Low', 'Medium', 'High', 'Very High']
-    day_data['user_category'] = pd.cut(day_data['total_users_hour'], bins=bins, labels=labels)
+# Rata-rata pengguna per jam
+hourly_avg_users = hourly_weekday_avg.groupby('hr')['avg_users'].mean().reset_index()
 
-    # Menampilkan distribusi kategori
-    category_distribution = day_data['user_category'].value_counts()
-    st.write("Distribusi Kategori Pengguna Sepeda:")
-    st.bar_chart(category_distribution)
+# Membuat Line Plot untuk rata-rata pengguna per jam
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.lineplot(x=hourly_avg_users['hr'], y=hourly_avg_users['avg_users'], marker='o', color='b')
+ax.set_title("Rata-rata Pengguna Berdasarkan Jam", fontsize=14)
+ax.set_xlabel('Jam', fontsize=12)
+ax.set_ylabel('Rata-rata Pengguna Sepeda', fontsize=12)
+ax.grid(True)
+st.pyplot(fig)
+
+# Visualisasi rata-rata pengguna berdasarkan hari
+st.markdown("##### Rata-rata Pengguna Berdasarkan Hari")
+
+# Rata-rata pengguna per hari
+weekday_avg_users = hourly_weekday_avg.groupby('weekday')['avg_users'].mean().reset_index()
+
+# Membuat Bar Plot untuk rata-rata pengguna per hari
+fig, ax = plt.subplots(figsize=(8, 6))
+sns.barplot(x=weekday_avg_users['weekday'], y=weekday_avg_users['avg_users'], palette="Blues_d", ax=ax)
+ax.set_title("Rata-rata Pengguna Berdasarkan Hari dalam Seminggu", fontsize=14)
+ax.set_xlabel('Hari', fontsize=12)
+ax.set_ylabel('Rata-rata Pengguna Sepeda', fontsize=12)
+ax.set_xticklabels(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])
+st.pyplot(fig)
+
+st.write("""
+    - Pengguna sepeda lebih aktif pada musim panas dan cuaca cerah. Strategi seperti promosi khusus musim panas atau kampanye cuaca cerah dapat meningkatkan penggunaan sepeda.
+- Aktivitas puncak pada pagi dan sore hari mengindikasikan kebutuhan alokasi sumber daya lebih besar pada jam sibuk, misalnya dengan memastikan sepeda dalam kondisi optimal.
+- Tren berdasarkan hari dan jam dapat membantu perencanaan operasional seperti pengelolaan stasiun sepeda selama hari kerja atau waktu sibuk.
+""")
+
+st.markdown("-------------------------------------------------------------------------")
+
+# Visualisasi RFM yang digabungkan
+st.markdown("### Analisis RFM (Recency, Frequency, Monetary) Berdasarkan Hari dan Jam")
+
 
 # Menambahkan footer
 st.write("""
@@ -65,3 +214,6 @@ st.write("""
     yang dapat membantu dalam memahami pola penggunaan sepeda berdasarkan faktor cuaca,
     musim, dan waktu.
 """)
+
+# Footer
+st.caption("© 2024 Dashboard Proyek Analisis Data")
