@@ -93,8 +93,8 @@ def create_combined_rfm_df(day_data, hour_data):
     return combined_rfm_df
 
 # Load data
-day_data = pd.read_csv("day_data.csv")
-hour_data = pd.read_csv("hour_data.csv")
+day_data = pd.read_csv("dashboard/day_data.csv")
+hour_data = pd.read_csv("dashboard/hour_data.csv")
 
 # Konversi kolom waktu
 day_data['dteday'] = pd.to_datetime(day_data['dteday'])
